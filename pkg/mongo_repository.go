@@ -2,24 +2,29 @@ package pkg
 
 import (
 	"context"
+
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-type InsertResult[Model any] struct {
+type BaseModel interface {
+	ToBson() interface{}
+}
+
+type InsertResult[Model BaseModel] struct {
 	ID   primitive.ObjectID
 	Base Model
 }
 
-type MongoRepository[Model any] struct {
+type MongoRepository[Model BaseModel] struct {
 	client     *mongo.Client
 	database   string
 	collection string
 }
 
-func NewMongoRepository[Model any](client *mongo.Client, database, collection string) *MongoRepository[Model] {
+func NewMongoRepository[Model BaseModel](client *mongo.Client, database, collection string) *MongoRepository[Model] {
 	return &MongoRepository[Model]{
 		client:     client,
 		database:   database,
@@ -55,19 +60,25 @@ func (r *MongoRepository[Model]) FindMany(ctx context.Context, filter interface{
 	return &results, nil
 }
 
-func (r *MongoRepository[Model]) InsertOne(ctx context.Context, document interface{}, opts ...*options.InsertOneOptions) (*InsertResult[Model], error) {
-	result, err := r.client.Database(r.database).Collection(r.collection).InsertOne(ctx, document, opts...)
+func (r *MongoRepository[Model]) InsertOne(ctx context.Context, model Model, opts ...*options.InsertOneOptions) (*InsertResult[Model], error) {
+	result, err := r.client.Database(r.database).Collection(r.collection).InsertOne(ctx, model.ToBson(), opts...)
 	if err != nil {
 		return nil, err
 	}
 
 	return &InsertResult[Model]{
-		Base: document,
+		Base: model,
 		ID:   result.InsertedID.(primitive.ObjectID),
 	}, nil
 }
 
-func (r *MongoRepository[Model]) InsertMany(ctx context.Context, documents []interface{}, opts ...*options.InsertManyOptions) (*[]InsertResult[Model], error) {
+func (r *MongoRepository[Model]) InsertMany(ctx context.Context, models []Model, opts ...*options.InsertManyOptions) (*[]InsertResult[Model], error) {
+	var documents []interface{}
+
+	for _, model := range models {
+		documents = append(documents, model.ToBson())
+	}
+
 	result, err := r.client.Database(r.database).Collection(r.collection).InsertMany(ctx, documents, opts...)
 	if err != nil {
 		return nil, err
@@ -75,14 +86,14 @@ func (r *MongoRepository[Model]) InsertMany(ctx context.Context, documents []int
 
 	listIds := result.InsertedIDs
 
-	var models []InsertResult[Model]
+	var savedModels []InsertResult[Model]
 
 	for idx, id := range listIds {
-		models = append(models, InsertResult[Model]{
-			Base: documents[idx],
+		savedModels = append(savedModels, InsertResult[Model]{
+			Base: models[idx],
 			ID:   id.(primitive.ObjectID),
 		})
 	}
 
-	return &models, nil
+	return &savedModels, nil
 }

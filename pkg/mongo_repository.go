@@ -15,7 +15,7 @@ type BaseModel interface {
 
 type InsertResult[Model BaseModel] struct {
 	ID   primitive.ObjectID
-	Base Model
+	Base *Model
 }
 
 type MongoRepository[Model BaseModel] struct {
@@ -60,8 +60,8 @@ func (r *MongoRepository[Model]) FindMany(ctx context.Context, filter interface{
 	return &results, nil
 }
 
-func (r *MongoRepository[Model]) InsertOne(ctx context.Context, model Model, opts ...*options.InsertOneOptions) (*InsertResult[Model], error) {
-	result, err := r.client.Database(r.database).Collection(r.collection).InsertOne(ctx, model.ToBson(), opts...)
+func (r *MongoRepository[Model]) InsertOne(ctx context.Context, model *Model, opts ...*options.InsertOneOptions) (*InsertResult[Model], error) {
+	result, err := r.client.Database(r.database).Collection(r.collection).InsertOne(ctx, model, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -72,11 +72,11 @@ func (r *MongoRepository[Model]) InsertOne(ctx context.Context, model Model, opt
 	}, nil
 }
 
-func (r *MongoRepository[Model]) InsertMany(ctx context.Context, models []Model, opts ...*options.InsertManyOptions) (*[]InsertResult[Model], error) {
+func (r *MongoRepository[Model]) InsertMany(ctx context.Context, models []*Model, opts ...*options.InsertManyOptions) ([]*InsertResult[Model], error) {
 	var documents []interface{}
 
 	for _, model := range models {
-		documents = append(documents, model.ToBson())
+		documents = append(documents, (*model).ToBson())
 	}
 
 	result, err := r.client.Database(r.database).Collection(r.collection).InsertMany(ctx, documents, opts...)
@@ -86,14 +86,14 @@ func (r *MongoRepository[Model]) InsertMany(ctx context.Context, models []Model,
 
 	listIds := result.InsertedIDs
 
-	var savedModels []InsertResult[Model]
+	var savedModels []*InsertResult[Model]
 
 	for idx, id := range listIds {
-		savedModels = append(savedModels, InsertResult[Model]{
+		savedModels = append(savedModels, &InsertResult[Model]{
 			Base: models[idx],
 			ID:   id.(primitive.ObjectID),
 		})
 	}
 
-	return &savedModels, nil
+	return savedModels, nil
 }
